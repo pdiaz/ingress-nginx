@@ -93,6 +93,7 @@ clean-install \
   unzip \
   nano \
   ssdeep \
+  golang \
   || exit 1
 
 # https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1667178.html
@@ -172,6 +173,39 @@ get_src c573435f495aac159e34eaa0a3847172a2298eb6295fcdc35d565f9f9b990513 \
 get_src 82209d5a5d9545c6dde3db7857f84345db22162fdea9743d5e2b2094d8d407f8 \
         "https://github.com/openresty/lua-resty-balancer/archive/v${LUA_RESTY_BALANCER_VERSION}.tar.gz"
 
+# based on https://github.com/rust-lang/docker-rust/blob/master/1.39.0/buster/Dockerfile
+export RUSTUP_HOME=/usr/local/rustup
+export CARGO_HOME=/usr/local/cargo
+export PATH=/usr/local/cargo/bin:$PATH
+export RUST_VERSION=1.39.0
+mkdir -p $RUSTUP_HOME $CARGO_HOME
+dpkgArch="$(dpkg --print-architecture)"
+case "${dpkgArch##*-}" in
+  amd64) rustArch='x86_64-unknown-linux-gnu'; rustupSha256='e68f193542c68ce83c449809d2cad262cc2bbb99640eb47c58fc1dc58cc30add' ;;
+  armhf) rustArch='armv7-unknown-linux-gnueabihf'; rustupSha256='7c1c329a676e50c287d8183b88f30cd6afd0be140826a9fbbc0e3d717fab34d7' ;;
+  arm64) rustArch='aarch64-unknown-linux-gnu'; rustupSha256='d861cc86594776414de001b96964be645c4bfa27024052704f0976dc3aed1b18' ;;
+  i386) rustArch='i686-unknown-linux-gnu'; rustupSha256='89f1f797dca2e5c1d75790c3c6b7be0ee473a7f4eca9663e623a41272a358da0' ;;
+  *) echo >&2 "unsupported architecture: ${dpkgArch}"; exit 1 ;;
+esac;
+url="https://static.rust-lang.org/rustup/archive/1.20.2/${rustArch}/rustup-init";
+wget "$url";
+echo "${rustupSha256} *rustup-init" | sha256sum -c -;
+chmod +x rustup-init;
+./rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION;
+rm rustup-init;
+chmod -R a+w $RUSTUP_HOME $CARGO_HOME;
+rustup --version;
+cargo --version;
+rustc --version;
+
+# Clone quiche and patch bundled nginx with it
+git clone --recurse-submodules --depth 1 https://github.com/cloudflare/quiche
+cd $BUILD_PATH/openresty-${OPENRESTY_VERSION}/bundle/nginx-1.*
+patch -p1 < $BUILD_PATH/quiche/extras/nginx/nginx-1.16.patch
+
+cd $BUILD_PATH/openresty-${OPENRESTY_VERSION}
+echo ZGlmZiAtLWdpdCBhL2J1bmRsZS9lbmNyeXB0ZWQtc2Vzc2lvbi1uZ2lueC1tb2R1bGUtMC4wOC9zcmMvbmd4X2h0dHBfZW5jcnlwdGVkX3Nlc3Npb25fY2lwaGVyLmMgYi9idW5kbGUvZW5jcnlwdGVkLXNlc3Npb24tbmdpbngtbW9kdWxlLTAuMDgvc3JjL25neF9odHRwX2VuY3J5cHRlZF9zZXNzaW9uX2NpcGhlci5jCmluZGV4IGZlOTY4ZTcuLmQ3ZjU4NzAgMTAwNjQ0Ci0tLSBhL2J1bmRsZS9lbmNyeXB0ZWQtc2Vzc2lvbi1uZ2lueC1tb2R1bGUtMC4wOC9zcmMvbmd4X2h0dHBfZW5jcnlwdGVkX3Nlc3Npb25fY2lwaGVyLmMKKysrIGIvYnVuZGxlL2VuY3J5cHRlZC1zZXNzaW9uLW5naW54LW1vZHVsZS0wLjA4L3NyYy9uZ3hfaHR0cF9lbmNyeXB0ZWRfc2Vzc2lvbl9jaXBoZXIuYwpAQCAtMTA1LDcgKzEwNSw3IEBAIG5neF9odHRwX2VuY3J5cHRlZF9zZXNzaW9uX2Flc19tYWNfZW5jcnlwdCgKIAogICAgIHAgKz0gbGVuOwogCi0gICAgcmV0ID0gRVZQX0VuY3J5cHRGaW5hbChlbWNmLT5zZXNzaW9uX2N0eCwgcCwgJmxlbik7CisgICAgcmV0ID0gRVZQX0VuY3J5cHRGaW5hbF9leChlbWNmLT5zZXNzaW9uX2N0eCwgcCwgJmxlbik7CiAKICAgICBlbWNmLT5yZXNldF9jaXBoZXJfY3R4KGVtY2YtPnNlc3Npb25fY3R4KTsKIApAQCAtMTk5LDcgKzE5OSw3IEBAIG5neF9odHRwX2VuY3J5cHRlZF9zZXNzaW9uX2Flc19tYWNfZGVjcnlwdCgKIAogICAgIHAgKz0gbGVuOwogCi0gICAgcmV0ID0gRVZQX0RlY3J5cHRGaW5hbChlbWNmLT5zZXNzaW9uX2N0eCwgcCwgJmxlbik7CisgICAgcmV0ID0gRVZQX0RlY3J5cHRGaW5hbF9leChlbWNmLT5zZXNzaW9uX2N0eCwgcCwgJmxlbik7CiAKICAgICBlbWNmLT5yZXNldF9jaXBoZXJfY3R4KGVtY2YtPnNlc3Npb25fY3R4KTsKIAo= | base64 -d | patch -p1
+cd $BUILD_PATH
 # improve compilation times
 CORES=$(($(grep -c ^processor /proc/cpuinfo) - 0))
 
@@ -394,6 +428,9 @@ WITH_FLAGS="--with-debug \
   --with-http_gzip_static_module \
   --with-http_sub_module \
   --with-http_v2_module \
+  --with-http_v3_module \
+  --with-openssl=$BUILD_PATH/quiche/deps/boringssl \
+  --with-quiche=$BUILD_PATH/quiche \
   --with-stream \
   --with-stream_ssl_module \
   --with-stream_ssl_preread_module \
